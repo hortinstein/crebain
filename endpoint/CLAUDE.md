@@ -19,7 +19,7 @@ This section of the repository defines various endpoint agents that serve a simp
 5) it should sleep and wait again for the sleep time.  
 
 ### Encryption
-Monocypher should be used throughout the project (on all endpoints/agents and on the server testing)
+Monocypher should be used throughout the project (on all endpoints/agents and on the server testing). It should specifically use the ```crypto_lock``` and ```cypto_unlock``` functions. Here is an example in NIM: https://raw.githubusercontent.com/hortinstein/enkodo/refs/heads/master/src/enkodo.nim
 
 ### Testing
 

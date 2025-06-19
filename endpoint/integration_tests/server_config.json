@@ -1,6 +1,6 @@
 {
-    "c2_priv_key": "monocypher priv key in base64",
-    "c2_pub_key": "monocypther public key in base64",
-    "agent_pub_key": "monocypther public key in base64",
-    "agent_priv_key": "monocypther private key in base64"
+  "c2_priv_key": "EV7iJuqb6rrwhNt7tHjOk/WpWcfSTUWJqQZji3Mvo6g=",
+  "c2_pub_key": "+DzVJ6TANiVsUbJFJhZ3nD83a2t0e0C4S1rTVa0OIVY=",
+  "agent_pub_key": "LhrxxOR1l2odJWYCdRKVhIcPPRiaeCeSArCeeR31hQU=",
+  "agent_priv_key": "JHrbDRpbefh11QWk/WHBErLArFW2/jWOjJEETgwI7Po="
 }
