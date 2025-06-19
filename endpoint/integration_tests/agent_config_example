@@ -1,0 +1,12 @@
+[monocypher 64 bit pub key] 
+[monocypher 64 bit priv key]
+{
+    "build_id":"built at compile time",
+    "deploy_id": "reconfigured on server",
+    "kill_epoch": "1764091654",
+    "interval": "1000",
+    "callback": "http://localhost:8080/release",
+    "c2_pub_key": "monocypther public key in base64",
+    "agent_priv_key": "monocypher priv key in base64",
+    "filler":"fills the rest to make sure total JSON length is 400 bytes"
+}

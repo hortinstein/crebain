@@ -1,0 +1,6 @@
+{
+    "c2_priv_key": "monocypher priv key in base64",
+    "c2_pub_key": "monocypther public key in base64",
+    "agent_pub_key": "monocypther public key in base64",
+    "agent_priv_key": "monocypther private key in base64"
+}

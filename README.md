@@ -4,3 +4,4 @@
 </div>
 
 20250609 2000-2015: estimate but I created the claude code in github
+20250619 1115- : working on scaffolding and configuration 
