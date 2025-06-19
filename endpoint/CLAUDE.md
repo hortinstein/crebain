@@ -1,7 +1,15 @@
 ### Outline
 This section of the repository defines various endpoint agents that serve a simple function.
 1) They are configured with static data that defines encryption/calling address/id numbers that provide relevant metadata and this should be loaded as context. This is encrypted using a keypair that preprends the JSON.  This entire config should be stored in 128 bytes for keypair + max 400 bytes for JSON. This means an uncofigured binary should have 528 bytes that are reconfigured prior to execution or testing.  
-2) They load this and decrypt. and execute a get request to the address that is in their configuration. It should include the deploy_id
+2) They load this and decrypt. and execute a get request to the address that is in their configuration. It should include the deploy_id as well as following in a JSON:
+  ip
+  external_ip
+  hostname
+  os
+  arch
+  users
+  boottime
+  
 3) The get request will be encoded by the server using the agent's public key. the agent will decrypt using it's private key, the task will be in JSON format: 
 """
 {
@@ -35,6 +43,23 @@ Integration tests should be able to be used across implementations.  NEVER USE M
 1) It should configure a sample of the binary and run it for target endpoint
 2) It should provide taskings that execute the following:
 - echo "hello"
+
+#### Project structure
+For integration tests it should look like the following:
+- ```integration_tests```
+  -- ```test_crypto.py``` tests the monocypher lock/unlock functions and configurations (use crypto functions from the python example)
+  -- ```test_server.py``` this should start a web server that waits for an agent
+  -- ```test_configure.py``` this should configure an agent for python and put it in this directory ```./bin/```
+  -- ```test_python.py``` this should run the configured python version 
+
+For the files of each agent/endpoint it should look like the following (using python as example):
+- ```python```
+  - ```agent.py```: the basic for loop that 
+  - ```configure.py```: handles the configuration in the format described
+  - ```crypto.py```: wrapper of monocypher that implements the following:
+     - ```generate_key_pair```: returns a pub/priv key using random bytes and ```crypto_key_exchange_public_key``` as well as encypt and decrypt.  The nonce and max should be included
+  -
+
 
 ### Configuration Files:
 Each agent should have 528 bytes of static configuration data that is stamped in.   

