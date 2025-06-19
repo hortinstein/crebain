@@ -31,7 +31,7 @@ Unit tests should in the language the endpoint is implemented in and should incl
 - 
 
 #### Integration tests
-Integration tests should be able to be used across implementations.
+Integration tests should be able to be used across implementations.  NEVER USE MOCK TESTS
 1) It should configure a sample of the binary and run it for target endpoint
 2) It should provide taskings that execute the following:
 - echo "hello"
