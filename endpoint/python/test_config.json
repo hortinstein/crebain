@@ -1,0 +1,20 @@
+{
+  "server_url": "http://localhost:8080",
+  "deploy_id": "agent001",
+  "callback_interval": 30,
+  "keys": {
+    "c2_public_key": "4d2ca197e813ceeb1b7fd43461295cfe8fdc9422ceb968616d4c246c12573e42",
+    "c2_private_key": "6046b6f3e0adce0fadd1400b760304585dfff191d128fafdc0ad2e9b4e291238",
+    "agent_public_key": "9d42cd84c517c607a53e126005499d91b96e83df1460f73fe2cc76b41f70797b",
+    "agent_private_key": "cd108270ac9940767e924b19884104679af65c788c95d9a42ba0b351151504dc"
+  },
+  "config_info": {
+    "config_size_bytes": 528,
+    "keypair_size_bytes": 128,
+    "max_json_size_bytes": 400,
+    "agent_public_key_size": 32,
+    "agent_private_key_size": 32,
+    "c2_public_key_size": 32,
+    "c2_private_key_size": 32
+  }
+}

