@@ -1,0 +1,16 @@
+services:
+  pocketbase:
+    build: .
+    ports:
+      - "8090:8090"
+    environment:
+      - POCKETBASE_ADMIN_EMAIL=${POCKETBASE_ADMIN_EMAIL:-test@pocket.co}
+      - POCKETBASE_ADMIN_PASSWORD=${POCKETBASE_ADMIN_PASSWORD:-fuckthiswebshit}
+    volumes:
+      - pb_data:/pb/pb_data
+      - pb_logs:/pb/pb_logs
+    restart: unless-stopped
+
+volumes:
+  pb_data:
+  pb_logs:
